@@ -1,0 +1,21 @@
+1. Fix calls [Fixed]
+2. Fix array specification [Fixed]
+3. Fix imports [Fixed]
+4. If, else, elif [Fixed]
+5. For loops [Fixed]
+6. While loops [Fixed]
+7. Try, except [Fixed]
+8. Other: in, is, not, etc. (boolean expressions) [Fixed]
+9. With, assert keywords [Fixed]
+10. Ternary [Fixed]
+11. String interpolation [Fixed]
+12. Walrus / assignment expression [Fixed]
+13. Augmented member targets [Fixed]
+14. Type annotations [Fixed]
+15. Spread / destructuring assignment [Fixed]
+16. Raise keyword [Fixed]
+17. Callable decorators
+
+?. IR lowering and potentially executable file format. This process is not a prioritisation.
+
+...

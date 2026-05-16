@@ -1,0 +1,9 @@
+class Integer {
+    function __init__(value: int) -> None {
+        self._value = value;
+    }
+    @property
+    function value() -> int {
+        return self._value;
+    }
+}

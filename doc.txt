@@ -1,0 +1,287 @@
+Compiler Design Notes: Lexing and Parsing
+
+## Key Terms
+
+A stream refers to a sequential list of values processed over time.
+Streams may be dynamic—updating continuously during runtime—or static, remaining unchanged after allocation.
+
+Within compiler and interpreter design, streams are commonly used to represent:
+- characters,
+- lexemes,
+- tokens,
+- syntax nodes,
+- or other intermediate structures produced during analysis.
+
+--------------------------------------------------
+
+LEXICAL ANALYSIS (LEXING)
+
+Before the source text can be analyzed syntactically or semantically, it must first be prepared in memory.
+
+The initial preparation stage follows a simple procedure:
+
+1. Open the source file.
+2. Read the file line by line.
+3. Store each line in accessible memory.
+4. Preserve positional information such as rows and columns.
+5. Close the file after caching has completed.
+
+Once the source text has been loaded, the lexer begins lexical analysis.
+
+--------------------------------------------------
+
+PURPOSE OF THE LEXER
+
+The lexer transforms raw source text into structured lexical units that later stages of the compiler can understand.
+
+This transformation generally follows the pipeline below:
+
+Source Text
+→ Characters
+→ Lexemes
+→ Tokens
+→ Parser Input
+
+--------------------------------------------------
+
+LEXEMES
+
+A lexeme is the literal sequence of characters extracted from the source text.
+
+Examples:
+
+while
+variable_name
++
+42
+
+Lexemes alone do not provide meaning.
+They become meaningful only after classification.
+
+--------------------------------------------------
+
+TOKENS
+
+A token is a structured representation of a lexeme.
+
+Each token commonly contains:
+
+- the lexeme itself,
+- a token type,
+- a row position,
+- a column position,
+- and optional metadata.
+
+Example structure:
+
+Token {
+    type
+    lexeme
+    row
+    column
+}
+
+Example token stream:
+
+(KEYWORD, "while")
+(IDENTIFIER, "x")
+(OPERATOR, "+")
+(NUMBER, "42")
+
+The lexer outputs these tokens into a token stream that the parser later consumes.
+
+--------------------------------------------------
+
+LEXER STREAMS
+
+The lexer may internally operate using multiple streams or traversal mechanisms.
+
+Two useful conceptual streams are:
+
+TOKEN STREAM
+
+The token stream stores all produced tokens in sequential order.
+
+This stream becomes the primary input for parsing.
+
+ADVANCING STREAM
+
+The advancing stream represents the active traversal state of the lexer or parser.
+
+This stream may:
+- advance through tokens,
+- inspect neighboring tokens,
+- perform lookahead operations,
+- or maintain parser state during traversal.
+
+Unlike the token stream, which is often treated as stable or immutable after lexing, the advancing stream represents movement and progression through the analyzed text.
+
+--------------------------------------------------
+
+TOKEN CLASSIFICATION
+
+Every token must contain a type describing its role within the language grammar.
+
+Examples include:
+
+IDENTIFIER
+KEYWORD
+NUMBER
+STRING
+OPERATOR
+DELIMITER
+
+Certain symbols may also influence surrounding tokens or expressions.
+
+For example:
+
+(
+)
+{
+}
+;
+,
+
+Although these symbols may appear structurally simple, they are still represented as independent tokens because they contribute meaning to syntax and grouping.
+
+--------------------------------------------------
+
+ATOMIC TOKEN TYPES
+
+The root classification of token types may be referred to as an atom hierarchy.
+
+The term atom originates from the Greek word meaning:
+- indivisible,
+- uncuttable,
+- or fundamental.
+
+In this context, atomic token types represent the smallest meaningful lexical classifications within the language.
+
+Example hierarchy:
+
+ATOM
+├── IDENTIFIER
+├── KEYWORD
+├── LITERAL
+├── OPERATOR
+└── DELIMITER
+
+--------------------------------------------------
+
+PARSING
+
+After lexical analysis completes, the parser consumes the token stream and constructs higher-level program structures.
+
+These structures are commonly referred to as:
+- syntax nodes,
+- expressions,
+- statements,
+- or abstract syntax tree (AST) nodes.
+
+The parser determines how tokens relate to one another according to the grammar rules of the language.
+
+--------------------------------------------------
+
+PARSING PIPELINE
+
+A simplified parsing pipeline may resemble the following:
+
+Source Text
+→ Lexer
+→ Token Stream
+→ Parser
+→ Abstract Syntax Tree
+→ Semantic Analysis
+→ Compilation or Interpretation
+
+--------------------------------------------------
+
+SYNTACTIC ANALYSIS
+
+Syntactic analysis verifies that token sequences follow the grammar rules of the language.
+
+For example:
+
+if (x > 0) {
+    print(x);
+}
+
+may be syntactically valid, while:
+
+if x > {
+
+would produce a syntax error.
+
+If invalid syntax is encountered, the parser should:
+- report the error,
+- preserve positional information,
+- and halt or recover depending on implementation design.
+
+--------------------------------------------------
+
+SEMANTIC ANALYSIS
+
+Semantic analysis occurs after syntactic correctness has been established.
+
+This stage verifies meaning rather than structure.
+
+Examples include:
+- variable existence,
+- type correctness,
+- scope resolution,
+- function compatibility,
+- and invalid operations.
+
+For example:
+
+number + "text"
+
+may be syntactically valid while remaining semantically invalid depending on language rules.
+
+Semantic analysis ensures that the parsed program is logically consistent before execution, interpretation, or compilation.
+
+--------------------------------------------------
+
+PARSER ARCHITECTURES
+
+Parsers are commonly categorized by traversal strategy.
+
+TOP-DOWN PARSERS
+
+Top-down parsers begin from larger grammatical structures and progressively break them into smaller parts.
+
+These parsers attempt to predict how a program should unfold according to grammar rules.
+
+Common examples include:
+- recursive descent parsers,
+- Pratt parsers,
+- and LL parsers.
+
+BOTTOM-UP PARSERS
+
+Bottom-up parsers operate in reverse.
+
+They begin with smaller token sequences and gradually combine them into larger syntactic structures until the full program structure emerges.
+
+Common examples include:
+- LR parsers,
+- shift-reduce parsers,
+- and LALR parsers.
+
+--------------------------------------------------
+
+FINAL NOTES
+
+Lexing and parsing are foundational stages of language analysis.
+
+Lexing transforms raw text into structured lexical representations.
+Parsing transforms those lexical representations into meaningful program structures.
+
+Together, these systems form the basis of:
+- compilers,
+- interpreters,
+- transpilers,
+- static analyzers,
+- and many forms of language tooling.
+
+Designing these systems carefully is essential for building reliable programming languages and analysis software.
