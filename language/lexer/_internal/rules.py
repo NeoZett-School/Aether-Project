@@ -173,7 +173,6 @@ class StringRule(Rule):
         )
 
     def consume(self, lexer) -> None:
-        from .errors import LexerError
         row, column = lexer.row, lexer.column
 
         prefix = _detect_string_prefix(lexer, self._TWO, self._ONE)
@@ -226,7 +225,6 @@ class FStringRule(Rule):
         return bool(_detect_string_prefix(lexer, self._TWO, self._ONE))
 
     def consume(self, lexer) -> None:
-        from .errors import LexerError
         row, column = lexer.row, lexer.column
 
         prefix = _detect_string_prefix(lexer, self._TWO, self._ONE)
