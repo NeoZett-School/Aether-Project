@@ -92,6 +92,7 @@ class Expression(ABC):
 class Literal(Expression):
     """A literal value: integer, float, or string."""
     value: Union[int, float, str]
+    prefix: str = ""
 
 
 @dataclass(slots=True)
@@ -200,14 +201,29 @@ class StarExpression(Expression):
 
 
 @dataclass(slots=True)
+class FStringPart:
+    """
+    One interpolated slot inside an f-string: ``{expr[!conv][:spec]}``.
+
+    conversion:  ``'r'``, ``'s'``, ``'a'``, or ``None``.
+    format_spec: the raw spec string (``'.2f'``, ``'>10'``, …), or ``None``.
+    """
+    expr:        Expression
+    conversion:  str | None = None
+    format_spec: str | None = None
+
+
+@dataclass(slots=True)
 class FStringExpression(Expression):
     """
-    An interpolated string: ``f"Hello, {name}!"``.
+    An interpolated string.
 
     ``parts`` alternates between plain ``str`` segments and
-    ``Expression`` nodes that fill ``{...}`` placeholders.
+    ``FStringPart`` objects for ``{...}`` placeholders.
+    ``prefix`` is the normalised lexer prefix: ``'f'``, ``'rf'``, etc.
     """
-    parts: list[Union[str, "Expression"]]
+    parts: list[Union[str, FStringPart]]
+    prefix: str = "f"
 
 
 @dataclass(slots=True)

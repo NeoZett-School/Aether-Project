@@ -120,9 +120,10 @@ class Lexer:
         lexeme: str,
         row: int,
         column: int,
+        prefix: str = "",
     ) -> None:
         """Append a new :class:`~lexer.token.Token` to the token list."""
-        self._tokens.append(Token(token_type, lexeme, row, column))
+        self._tokens.append(Token(token_type, lexeme, row, column, prefix))
 
     # --------------------------------------------------------------- tokenize
 

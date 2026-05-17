@@ -16,8 +16,8 @@
 16. Raise keyword [Fixed]
 17. Callable decorators [Fixed]
 18. Assignment + annotations in classes [Fixed]
-19. F-strings ":.2f"
-20. R-string implementation. Might combine.
+19. F-strings ":.2f" [Fixed]
+20. R-string implementation. Might combine. [Fixed]
 
 ?. IR lowering and potentially executable file format. This process is not a prioritisation.
 

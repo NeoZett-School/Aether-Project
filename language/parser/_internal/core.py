@@ -53,6 +53,7 @@ from .nodes import (
     ClassDeclarationNode,
     TupleExpression,
     StarExpression,
+    FStringPart,
     FStringExpression,
     TernaryExpression,
     WalrusExpression,
@@ -694,53 +695,98 @@ class Parser:
             name = self._expect(TokenType.IDENTIFIER).lexeme
             return StarExpression(name)
         return self._parse_expression()
+    
 
-
-    def _parse_fstring_content(self, raw: str) -> FStringExpression:
+    def _split_fstring_placeholder(
+        self, content: str
+    ) -> tuple[str, str | None, str | None]:
         """
-        Split the raw f-string lexeme on ``{...}`` placeholders and
-        recursively parse each inner expression using a sub-parser that
-        shares the parent lexer's rule set.
+        Split the raw content of a ``{...}`` placeholder into
+        ``(expr_src, conversion, format_spec)``.
+
+        Examples
+        --------
+        ``"x"``         → ``("x",   None, None)``
+        ``"x!r"``       → ``("x",   "r",  None)``
+        ``"x:.2f"``     → ``("x",   None, ".2f")``
+        ``"x!r:.2f"``   → ``("x",   "r",  ".2f")``
+        ``"d[k]:.4e"``  → ``("d[k]",None, ".4e")``
+
+        Nesting is tracked so that ``{x:{w}.{p}}`` does not split on the
+        inner colons.
+        """
+        depth = 0
+        for i, ch in enumerate(content):
+            if ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                depth -= 1
+            elif depth == 0:
+                if ch == "!":
+                    expr_src = content[:i].strip()
+                    rest     = content[i + 1:]
+                    if rest and rest[0] in "rsa":
+                        conversion  = rest[0]
+                        format_spec = rest[2:] if rest[1:].startswith(":") else None
+                        return expr_src, conversion, format_spec or None
+                    # bare `!` not followed by a valid flag — treat as expression
+                    return content.strip(), None, None
+                if ch == ":":
+                    expr_src    = content[:i].strip()
+                    format_spec = content[i + 1:]
+                    return expr_src, None, format_spec or None
+        return content.strip(), None, None
+
+
+    def _parse_fstring_content(
+        self, raw: str, prefix: str = "f"
+    ) -> FStringExpression:
+        """
+        Walk the raw f-string lexeme, split on ``{...}`` placeholders, parse
+        each inner expression via a sub-parser, and collect conversion flags
+        and format specs.
         """
 
-        parts: list[str | Expression] = []
-        current_str = ""
-        i = 0
+        parts: list[str | FStringPart] = []
+        buf   = ""
+        i     = 0
 
         while i < len(raw):
             ch = raw[i]
 
             if ch == "{":
-                if i + 1 < len(raw) and raw[i + 1] == "{":
-                    current_str += "{"
-                    i += 2
+                if i + 1 < len(raw) and raw[i + 1] == "{":   # escaped {{
+                    buf += "{"
+                    i   += 2
                     continue
-                if current_str:
-                    parts.append(current_str)
-                    current_str = ""
-                # find the matching closing brace
+                if buf:
+                    parts.append(buf)
+                    buf = ""
+                # locate the matching closing brace, respecting nesting
                 depth, j = 1, i + 1
                 while j < len(raw) and depth > 0:
-                    if raw[j] == "{": depth += 1
+                    if   raw[j] == "{": depth += 1
                     elif raw[j] == "}": depth -= 1
                     j += 1
-                expr_src = raw[i + 1 : j - 1]
-                sub = Parser(Lexer(expr_src, rules=self._lexer.rules)).load()
-                parts.append(sub._parse_expression())
+                placeholder                   = raw[i + 1 : j - 1]
+                expr_src, conversion, fmt_spec = self._split_fstring_placeholder(placeholder)
+                sub  = Parser(Lexer(expr_src, rules=self._lexer.rules)).load()
+                expr = sub._parse_expression()
+                parts.append(FStringPart(expr, conversion, fmt_spec))
                 i = j
 
-            elif ch == "}" and i + 1 < len(raw) and raw[i + 1] == "}":
-                current_str += "}"
-                i += 2
+            elif ch == "}" and i + 1 < len(raw) and raw[i + 1] == "}":  # escaped }}
+                buf += "}"
+                i   += 2
 
             else:
-                current_str += ch
-                i += 1
+                buf += ch
+                i   += 1
 
-        if current_str:
-            parts.append(current_str)
+        if buf:
+            parts.append(buf)
 
-        return FStringExpression(parts)
+        return FStringExpression(parts, prefix)
 
 
     def _parse_with(self) -> WithNode:
@@ -897,17 +943,17 @@ class Parser:
         # string literal
         if tok.token_type == TokenType.STRING:
             self._advance()
-            return Literal(tok.lexeme)
+            return Literal(tok.lexeme, prefix=tok.prefix)   # ← prefix forwarded
+
+        # f-string
+        if tok.token_type == TokenType.FSTRING:
+            self._advance()
+            return self._parse_fstring_content(tok.lexeme, tok.prefix)   # ← prefix forwarded
 
         # identifier (variable reference)
         if tok.token_type == TokenType.IDENTIFIER:
             self._advance()
             return Identifier(tok.lexeme)
-
-        # f-string
-        if tok.token_type == TokenType.FSTRING:
-            self._advance()
-            return self._parse_fstring_content(tok.lexeme)
 
         # tuple / walrus / grouping
         if tok.token_type == TokenType.LPAREN:

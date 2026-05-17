@@ -353,13 +353,22 @@ class PythonTranspiler:
 
         if isinstance(expr, Literal):
             if isinstance(expr.value, str):
-                # Re-quote the string; the lexer strips the quotes.
-                escaped = expr.value.replace("\\", "\\\\").replace('"', '\\"')
-                return f'"{escaped}"'
-            # Integers are emitted without a decimal point.
+                is_raw = "r" in expr.prefix
+                if is_raw:
+                    # Content is verbatim from the source; only the delimiter needs escaping.
+                    content = expr.value.replace('"', '\\"')
+                else:
+                    content = (
+                        expr.value
+                        .replace("\\", "\\\\")
+                        .replace('"',  '\\"')
+                        .replace("\n", "\\n")
+                        .replace("\t", "\\t")
+                        .replace("\r", "\\r")
+                    )
+                return f'{expr.prefix}"{content}"'
             if isinstance(expr.value, int):
                 return str(expr.value)
-            # Floats: strip trailing zeros for tidiness (3.0 → "3.0" kept).
             return str(expr.value)
 
         if isinstance(expr, Identifier):
@@ -416,13 +425,17 @@ class PythonTranspiler:
             return f"*{expr.name}"
 
         if isinstance(expr, FStringExpression):
-            body = "".join(
-                part.replace("{", "{{").replace("}", "}}")
-                if isinstance(part, str)
-                else f"{{{self._eval(part)}}}"
-                for part in expr.parts
-            )
-            return f'f"{body}"'
+            body = ""
+            for part in expr.parts:
+                if isinstance(part, str):
+                    # Literal segment: brace-escape so they survive the f-string.
+                    body += part.replace("{", "{{").replace("}", "}}")
+                else:                                   # FStringPart
+                    inner      = self._eval(part.expr)
+                    conversion = f"!{part.conversion}" if part.conversion  else ""
+                    fmt_spec   = f":{part.format_spec}" if part.format_spec else ""
+                    body += f"{{{inner}{conversion}{fmt_spec}}}"
+            return f'{expr.prefix}"{body}"'
 
         if isinstance(expr, TernaryExpression):
             # C:   cond ? x : y

@@ -25,7 +25,7 @@ class Token:
         1-based column number of the first character.
     """
 
-    __slots__ = ("token_type", "lexeme", "row", "column")
+    __slots__ = ("token_type", "lexeme", "row", "column", "prefix")
 
     def __init__(
         self,
@@ -33,21 +33,21 @@ class Token:
         lexeme: str,
         row: int,
         column: int,
+        prefix: str = ""
     ) -> None:
         self.token_type = token_type
         self.lexeme = lexeme
         self.row = row
         self.column = column
+        self.prefix = prefix
 
     # ``TokenType`` is now an ``IntEnum`` so ``.name`` is built in.
     def __repr__(self) -> str:
+        pre = f", prefix={self.prefix!r}" if self.prefix else ""
         return (
-            f"Token("
-            f"type={self.token_type.name}, "
+            f"Token(type={self.token_type.name}, "
             f"lexeme={self.lexeme!r}, "
-            f"row={self.row}, "
-            f"col={self.column}"
-            f")"
+            f"row={self.row}, col={self.column}{pre})"
         )
 
     def __str__(self) -> str:

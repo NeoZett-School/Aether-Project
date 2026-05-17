@@ -1,8 +1,11 @@
-from dataclasses import dataclass
-@dataclass(slots=True)
-class User:
-    name: str
-    def say_hello(self):
-        print(f"{self.name} says hello!")
-user = User(name="Some User")
-user.say_hello()
+path = r"C:\Users\neo\file.txt"
+data = b"raw bytes"
+pattern = rb"\d+\.\d+"
+pi = 3.14159
+label = "pi"
+short = f"Value: {pi:.4f}"
+padded = f"{label!r:>20}"
+both = f"{pi!r:.2f}"
+raw_msg = rf"Path is: {path}\n(no newline)"
+items = [1, 2, 3]
+summary = f"Total: {len(items)} — avg: {(sum(items) / len(items)):.2f}"

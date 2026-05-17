@@ -26,6 +26,26 @@ from .errors import LexerError
 from .states import TokenType
 
 
+_QUOTES: frozenset[str] = frozenset({'"', "'"})
+
+def _detect_string_prefix(lexer, valid_two: frozenset, valid_one: frozenset) -> str:
+    """
+    Return the normalised (lowercase) prefix sitting before an opening quote,
+    or '' if the current position does not start a prefixed string of this kind.
+
+    ``valid_two`` / ``valid_one`` are the two-char and one-char prefixes this
+    particular rule cares about, e.g. ``{"rb", "br"}`` / ``{"r", "b"}``.
+    """
+    c0 = (lexer.current or "").lower()
+    c1 = (lexer.peek(1) or "").lower()
+    c2 =  lexer.peek(2) or ""
+    if c0 + c1 in valid_two and c2 in _QUOTES:
+        return c0 + c1
+    if c0 in valid_one and c1 in _QUOTES:
+        return c0
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Base
 # ---------------------------------------------------------------------------
@@ -130,85 +150,107 @@ class NumberRule(Rule):
 
 class StringRule(Rule):
     """
-    Consumes single- or double-quoted string literals.
+    Consumes plain and prefixed non-f-string literals.
 
-    Supports the common escape sequences ``\\n``, ``\\t``, ``\\r``,
-    ``\\\\``, ``\\'``, and ``\\"``.  Unknown escapes are passed
-    through verbatim.
+    Supported prefixes (case-insensitive, stored normalised to lowercase):
+      r / R          raw  — backslashes are not processed
+      b / B          bytes
+      rb / br / RB … raw bytes
     """
 
-    QUOTES: frozenset[str] = frozenset({'"', "'"})
+    _TWO = frozenset({"rb", "br"})
+    _ONE = frozenset({"r", "b"})
 
     ESCAPES: dict[str, str] = {
-        "n":  "\n",
-        "t":  "\t",
-        "r":  "\r",
-        "\\": "\\",
-        '"':  '"',
-        "'":  "'",
+        "n": "\n", "t": "\t", "r": "\r",
+        "\\": "\\", '"': '"', "'": "'",
     }
 
     def matches(self, lexer) -> bool:
-        return lexer.current in self.QUOTES
+        return (
+            lexer.current in _QUOTES
+            or bool(_detect_string_prefix(lexer, self._TWO, self._ONE))
+        )
 
     def consume(self, lexer) -> None:
+        from .errors import LexerError
         row, column = lexer.row, lexer.column
-        quote = lexer.advance()          # opening quote
+
+        prefix = _detect_string_prefix(lexer, self._TWO, self._ONE)
+        for _ in prefix:                    # advance past prefix chars
+            lexer.advance()
+
+        is_raw = "r" in prefix
+        quote  = lexer.advance()            # opening quote
         lexeme = ""
 
         while lexer.current is not None:
             c = lexer.current
 
-            if c == quote:               # closing quote
+            if c == quote:
                 lexer.advance()
-                lexer.emit(TokenType.STRING, lexeme, row, column)
+                lexer.emit(TokenType.STRING, lexeme, row, column, prefix)
                 return
 
-            if c == "\\":               # escape sequence
+            if not is_raw and c == "\\":
                 lexer.advance()
                 esc = lexer.current
                 if esc is None:
                     raise LexerError("Unterminated escape sequence", lexer.row, lexer.column)
-                lexeme += self.ESCAPES.get(esc, esc)
+                lexeme += self.ESCAPES.get(esc, "\\" + esc)
                 lexer.advance()
                 continue
 
             lexeme += lexer.advance()
 
-        raise LexerError(f"Unterminated string literal", row, column)
+        raise LexerError("Unterminated string literal", row, column)
 
 
 class FStringRule(Rule):
     """
-    Consumes ``f"..."`` / ``f'...'`` as a single FSTRING token whose
-    lexeme is the raw content between the quotes, ``{...}`` placeholders
-    included.  The parser splits and recurses into them.
+    Consumes interpolated string literals.
 
-    Must precede ``IdentifierRule`` so ``f"x"`` is not lexed as
-    IDENTIFIER ``f`` + STRING ``x``.
+    Supported prefixes (case-insensitive, stored normalised):
+      f / F          standard f-string
+      rf / fr / RF … raw f-string — backslashes in literal segments are verbatim
+
+    The entire content between the quotes is stored as the lexeme; the
+    parser splits and recurses into ``{...}`` placeholders.
+    Must be registered *before* StringRule and IdentifierRule.
     """
 
-    QUOTES: frozenset[str] = frozenset({'"', "'"})
+    _TWO = frozenset({"rf", "fr"})
+    _ONE = frozenset({"f"})
 
     def matches(self, lexer) -> bool:
-        return lexer.current == "f" and lexer.peek() in self.QUOTES
+        return bool(_detect_string_prefix(lexer, self._TWO, self._ONE))
 
     def consume(self, lexer) -> None:
+        from .errors import LexerError
         row, column = lexer.row, lexer.column
-        lexer.advance()                          # consume 'f'
-        quote = lexer.advance()                  # opening quote
-        raw = ""
+
+        prefix = _detect_string_prefix(lexer, self._TWO, self._ONE)
+        is_raw = "r" in prefix
+
+        for _ in prefix:
+            lexer.advance()
+
+        quote = lexer.advance()             # opening quote
+        raw   = ""
+
         while lexer.current is not None:
             if lexer.current == quote:
                 lexer.advance()
-                lexer.emit(TokenType.FSTRING, raw, row, column)
+                lexer.emit(TokenType.FSTRING, raw, row, column, prefix)
                 return
-            # keep escape sequences verbatim for the parser
-            if lexer.current == "\\" and lexer.peek() in (quote, "\\"):
+            # In non-raw f-strings keep escaped quotes/backslashes verbatim
+            # so the parser sees them intact when it recurses into placeholders.
+            if not is_raw and lexer.current == "\\" and lexer.peek() in (quote, "\\"):
                 raw += lexer.advance()
                 raw += lexer.advance()
                 continue
             raw += lexer.advance()
+
         raise LexerError("Unterminated f-string", row, column)
 
 
