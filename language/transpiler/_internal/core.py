@@ -187,20 +187,8 @@ class PythonTranspiler:
                 base = f"({', '.join(node.bases)})" if node.bases else ""
                 lines.append(f"{pad}class {node.name}{base}:")
 
-                if not node.methods:
-                    lines.append(f"{pad}{self._INDENT}pass")
-                else:
-                    # methods — inject_self=True, and pass method decorators too
-                    for method in node.methods:
-                        is_static = False
-                        for dec in method.decorators:
-                            dec = self._decorator_translations.get(dec, dec)
-                            lines.append(self._emit_decorator(dec, pad))
-                            if dec == "staticmethod":
-                                is_static = True
-                        lines.append(f"{pad}{self._INDENT}def {method.name}({self._emit_params(method.params, inject_self=not is_static)}):")
-                        body_lines = self._generate(method.body.body, indent + 2)
-                        lines.extend(body_lines if body_lines else [f"{pad}{self._INDENT * 2}pass"])
+                body_lines = self._generate_class_body(node.body, indent + 1)
+                lines.extend(body_lines if body_lines else [f"{pad}    pass"])
 
             # ── return statement ───────────────────────────────────────────
             elif isinstance(node, ReturnNode):
@@ -325,6 +313,36 @@ class PythonTranspiler:
             elif isinstance(node, BreakNode):    lines.append(f"{pad}break")
             elif isinstance(node, ContinueNode): lines.append(f"{pad}continue")
             elif isinstance(node, PassNode):     lines.append(f"{pad}pass")
+
+        return lines
+    
+    def _generate_class_body(self, nodes: list[Node], indent: int) -> list[str]:
+        """
+        Emit class body members with two special rules versus normal _generate:
+        - FunctionDeclarationNode: ``self`` is injected as the first parameter.
+        - Everything else (assignments, annotations, pass, ...): emitted as-is
+        via the normal _generate path, which already handles all node types.
+        """
+        lines: list[str] = []
+        pad = self._INDENT * indent
+
+        for node in nodes:
+            if isinstance(node, FunctionDeclarationNode):
+                is_static = False
+                for dec in node.decorators:
+                    lines.append(self._emit_decorator(dec, pad))
+                    if self._decorator_translations.get(dec, dec) == "staticmethod":
+                        is_static = True
+                ret = f" -> {self._eval(node.return_type)}" if node.return_type else ""
+                sig = self._emit_params(node.params, inject_self=not is_static)
+                lines.append(f"{pad}def {node.name}({sig}){ret}:")
+                body_lines = self._generate(node.body.body, indent + 1)
+                lines.extend(body_lines if body_lines else [f"{pad}    pass"])
+            else:
+                # Delegate everything else — assignments, annotated assignments,
+                # compound assignments, pass, expression statements — to the
+                # general generator at the correct indentation level.
+                lines.extend(self._generate([node], indent))
 
         return lines
 

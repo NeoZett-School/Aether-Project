@@ -304,39 +304,87 @@ class Parser:
     
     def _parse_class_declaration(self, decorators: list[str] | None = None) -> ClassDeclarationNode:
         """``class Name [extends Super] { method* }``"""
-        self._advance()                               # consume `class`
+        self._advance()                                 # consume `class`
         name_tok = self._expect(TokenType.IDENTIFIER)
 
         bases: list[str] = []
         if self._match_keyword("extends"):
-            self._advance()                               # consume `extends`
+            self._advance()
             bases.append(self._expect(TokenType.IDENTIFIER).lexeme)
             while self._match(TokenType.COMMA):
-                self._advance()                           # consume `,`
+                self._advance()
                 bases.append(self._expect(TokenType.IDENTIFIER).lexeme)
 
         self._expect(TokenType.LBRACE)
-        methods: list[FunctionDeclarationNode] = []
-        method_decorators: list[str] = []
+        body: list[Node] = []
 
         while self._current and not self._match(TokenType.RBRACE):
+
+            # ── decorators ────────────────────────────────────────────────────
+            member_decorators: list[Decorator] = []
+            while self._match(TokenType.AT):
+                self._advance()
+                member_decorators.append(Decorator(self._parse_postfix()))
+
+            # ── method declaration ────────────────────────────────────────────
             if self._match_keyword("function"):
-                methods.append(self._parse_function_declaration(method_decorators))
-            elif self._match(TokenType.AT):
-                self._advance()                           # consume `@`
-                method_decorators.append(self._expect(TokenType.IDENTIFIER).lexeme)
-            else:
+                body.append(self._parse_function_declaration(member_decorators))
+                continue
+
+            # decorators with no following function are an error
+            if member_decorators:
                 tok = self._current
                 raise ParseError(
-                    "Only method declarations are allowed in a class body",
-                    tok.row, tok.column,
+                    "Decorators inside a class body must precede a method declaration",
+                    tok.row if tok else None,
+                    tok.column if tok else None,
                 )
+
+            # ── pass ──────────────────────────────────────────────────────────
+            if self._match_keyword("pass"):
+                self._advance()
+                self._optional(TokenType.SEMICOLON)
+                body.append(PassNode())
+                continue
+
+            # ── assignment / annotated assignment / compound assignment ────────
+            # Parse the LHS as an expression first, then decide by what follows.
+            expr = self._parse_expression()
+
+            if self._match(TokenType.ASSIGN):
+                self._validate_target(expr)
+                self._advance()                         # consume `=`
+                value = self._parse_expression()
+                self._optional(TokenType.SEMICOLON)
+                body.append(AssignmentNode(expr, value))
+
+            elif self._match(TokenType.COLON):
+                self._validate_target(expr)
+                self._advance()                         # consume `:`
+                annotation = self._parse_annotation()
+                value = None
+                if self._match(TokenType.ASSIGN):
+                    self._advance()
+                    value = self._parse_expression()
+                self._optional(TokenType.SEMICOLON)
+                body.append(AnnotatedAssignmentNode(expr, annotation, value))
+
+            elif self._match(TokenType.COMPOUND_ASSIGN):
+                self._validate_target(expr)
+                op = self._advance().lexeme
+                value = self._parse_expression()
+                self._optional(TokenType.SEMICOLON)
+                body.append(CompoundAssignmentNode(expr, op, value))
+
+            else:
+                self._optional(TokenType.SEMICOLON)
+                body.append(ExpressionNode(expr))
 
         self._expect(TokenType.RBRACE)
         class_decorators = list(decorators or [])
         if class_decorators:
             decorators.clear()
-        return ClassDeclarationNode(name_tok.lexeme, bases, methods, class_decorators)
+        return ClassDeclarationNode(name_tok.lexeme, bases, body, class_decorators)
     
     def _parse_function_declaration(self, decorators: list[str] | None = None) -> FunctionDeclarationNode:
         """``function name ( params ) block``"""

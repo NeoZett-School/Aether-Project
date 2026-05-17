@@ -2,7 +2,7 @@ from dataclasses import dataclass;
 
 @dataclass(slots=True)
 class User {
-    // We still have to fix so that we can define variables witin a class.
+    name: str;
     function say_hello() {
         print(f"{self.name} says hello!");
     }

@@ -348,7 +348,7 @@ class ClassDeclarationNode(Node):
     """
     name: str
     bases: list[str]
-    methods: list[FunctionDeclarationNode]
+    body: list[Node]                        # ← methods, assignments, annotations
     decorators: list[Decorator] = field(default_factory=list)
 
 
