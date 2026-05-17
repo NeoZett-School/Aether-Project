@@ -18,6 +18,7 @@
 18. Assignment + annotations in classes [Fixed]
 19. F-strings ":.2f" [Fixed]
 20. R-string implementation. Might combine. [Fixed]
+21. Switch-case...
 
 ?. IR lowering and potentially executable file format. This process is not a prioritisation.
 
