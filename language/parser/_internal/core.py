@@ -35,6 +35,7 @@ from .nodes import (
     ParameterKind,
     Parameter,
     Argument,
+    Decorator,
     ArrayExpression,
     AssignmentNode,
     CompoundAssignmentNode,
@@ -202,7 +203,7 @@ class Parser:
         decorators: list[str] = []
         while self._match(TokenType.AT):
             self._advance()                           # consume `@`
-            decorators.append(self._expect(TokenType.IDENTIFIER).lexeme)
+            decorators.append(Decorator(self._parse_postfix()))
 
         # ── keyword: function declaration ──────────────────────────────────
         if self._match_keyword("function"):

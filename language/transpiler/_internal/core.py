@@ -31,6 +31,7 @@ from ...lexer.rules import DEFAULT_RULES, Rule
 from ...parser.core import Parser
 from ...parser.nodes import (
     Parameter,
+    Decorator,
     ArrayExpression,
     AssignmentNode,
     CompoundAssignmentNode,
@@ -174,7 +175,7 @@ class PythonTranspiler:
             # ── function declaration ───────────────────────────────────────
             if isinstance(node, FunctionDeclarationNode):
                 for dec in node.decorators:
-                    lines.append(f"{pad}@{self._decorator_translations.get(dec, dec)}")
+                    lines.append(self._emit_decorator(dec, pad))
                 ret = f" -> {self._eval(node.return_type)}" if node.return_type else ""
                 lines.append(f"{pad}def {node.name}({self._emit_params(node.params)}){ret}:")
                 body_lines = self._generate(node.body.body, indent + 1)
@@ -182,7 +183,7 @@ class PythonTranspiler:
             
             elif isinstance(node, ClassDeclarationNode):
                 for dec in node.decorators:
-                    lines.append(f"{pad}@{self._decorator_translations.get(dec, dec)}")
+                    lines.append(self._emit_decorator(dec, pad))
                 base = f"({', '.join(node.bases)})" if node.bases else ""
                 lines.append(f"{pad}class {node.name}{base}:")
 
@@ -194,7 +195,7 @@ class PythonTranspiler:
                         is_static = False
                         for dec in method.decorators:
                             dec = self._decorator_translations.get(dec, dec)
-                            lines.append(f"{pad}{self._INDENT}@{dec}")
+                            lines.append(self._emit_decorator(dec, pad))
                             if dec == "staticmethod":
                                 is_static = True
                         lines.append(f"{pad}{self._INDENT}def {method.name}({self._emit_params(method.params, inject_self=not is_static)}):")
@@ -445,3 +446,9 @@ class PythonTranspiler:
                 continue
             parts.append(self._emit_param(p))
         return ", ".join(parts)
+    
+    def _emit_decorator(self, dec: Decorator, pad: str) -> str:
+        if isinstance(dec.expr, Identifier):
+            name = self._decorator_translations.get(dec.expr.name, dec.expr.name)
+            return f"{pad}@{name}"
+        return f"{pad}@{self._eval(dec.expr)}"

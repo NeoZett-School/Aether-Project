@@ -66,6 +66,19 @@ class Argument:
     kind: ArgumentKind = "regular"
 
 
+@dataclass(slots=True)
+class Decorator:
+    """
+    A decorator applied to a function or class.
+
+    ``expr`` may be any postfix expression:
+      - bare identifier:    ``@staticmethod``
+      - member access:      ``@app.route``
+      - call:               ``@app.route("/")``
+      - chained call:       ``@pytest.mark.parametrize("x", [1, 2])``
+    """
+    expr: Expression
+
 # ---------------------------------------------------------------------------
 # Expression hierarchy
 # ---------------------------------------------------------------------------
@@ -318,7 +331,7 @@ class FunctionDeclarationNode(Node):
     name: str
     params: list[Parameter]
     body: BlockNode
-    decorators: list[str] = field(default_factory=list)
+    decorators: list[Decorator] = field(default_factory=list)
     return_type: Expression | None = None
 
 
@@ -336,7 +349,7 @@ class ClassDeclarationNode(Node):
     name: str
     bases: list[str]
     methods: list[FunctionDeclarationNode]
-    decorators: list[str] = field(default_factory=list)
+    decorators: list[Decorator] = field(default_factory=list)
 
 
 @dataclass(slots=True)

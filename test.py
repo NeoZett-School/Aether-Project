@@ -1,6 +1,7 @@
-class Integer:
-    def __init__(self, value: int):
-        self._value = value
-    @property
-    def value(self):
-        return self._value
+from dataclasses import dataclass
+@dataclass(slots=True)
+class User:
+    def say_hello(self):
+        print(f"{self.name} says hello!")
+user = User(name="Some User")
+user.say_hello()

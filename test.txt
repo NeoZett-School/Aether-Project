@@ -1,9 +1,12 @@
-class Integer {
-    function __init__(value: int) -> None {
-        self._value = value;
-    }
-    @property
-    function value() -> int {
-        return self._value;
+from dataclasses import dataclass;
+
+@dataclass(slots=True)
+class User {
+    // We still have to fix so that we can define variables witin a class.
+    function say_hello() {
+        print(f"{self.name} says hello!");
     }
 }
+
+user = User(name="Some User");
+user.say_hello();
