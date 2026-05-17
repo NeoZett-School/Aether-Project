@@ -14,7 +14,8 @@
 14. Type annotations [Fixed]
 15. Spread / destructuring assignment [Fixed]
 16. Raise keyword [Fixed]
-17. Callable decorators
+17. Callable decorators [Fixed]
+18. Assignment + annotations in classes
 
 ?. IR lowering and potentially executable file format. This process is not a prioritisation.
 
