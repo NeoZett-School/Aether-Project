@@ -331,8 +331,10 @@ class PythonTranspiler:
                 is_static = False
                 for dec in node.decorators:
                     lines.append(self._emit_decorator(dec, pad))
-                    if self._decorator_translations.get(dec, dec) == "staticmethod":
-                        is_static = True
+                    if isinstance(dec.expr, Identifier):
+                        name = self._decorator_translations.get(dec.expr.name, dec.expr.name)
+                        if name == "staticmethod":
+                            is_static = True
                 ret = f" -> {self._eval(node.return_type)}" if node.return_type else ""
                 sig = self._emit_params(node.params, inject_self=not is_static)
                 lines.append(f"{pad}def {node.name}({sig}){ret}:")
