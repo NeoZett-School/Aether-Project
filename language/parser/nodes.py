@@ -67,7 +67,15 @@ from ._internal.nodes import (
     TryNode,
     BreakNode,
     ContinueNode,
-    PassNode
+    PassNode,
+    Pattern,
+    LiteralPattern,
+    CapturePattern,
+    WildcardPattern,
+    ValuePattern,
+    OrPattern,
+    CaseClause,
+    SwitchNode
 )
 
 __all__ = (
@@ -114,5 +122,13 @@ __all__ = (
     "TryNode",
     "BreakNode",
     "ContinueNode",
-    "PassNode"
+    "PassNode",
+    "Pattern",
+    "LiteralPattern",
+    "CapturePattern",
+    "WildcardPattern",
+    "ValuePattern",
+    "OrPattern",
+    "CaseClause",
+    "SwitchNode"
 )

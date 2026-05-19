@@ -29,7 +29,13 @@ from abc import ABC
 from dataclasses import dataclass, field
 from typing import Union, Literal as _Literal
 
-ParameterKind = _Literal["regular", "args", "kwargs"]
+ParameterKind = _Literal[
+    "regular",
+    "args",         # *name
+    "kwargs",       # **name  (name="_" when nameless)
+    "positional_sep",   # /   — all params before this are positional-only
+    "keyword_sep",      # *,  — all params after this are keyword-only
+]
 ArgumentKind = _Literal["regular", "keyword", "args", "kwargs"]
 
 
@@ -465,3 +471,75 @@ class ContinueNode(Node):
 @dataclass(slots=True)
 class PassNode(Node):
     """``pass``"""
+
+# ── pattern hierarchy ─────────────────────────────────────────────────────────
+
+class Pattern(ABC):
+    """Base for all match/case patterns."""
+
+
+@dataclass(slots=True)
+class LiteralPattern(Pattern):
+    """
+    Matches a specific constant: ``1``, ``"hello"``, ``true``, ``null``.
+    ``value`` is always a ``Literal`` node.
+    """
+    value: Literal
+
+
+@dataclass(slots=True)
+class CapturePattern(Pattern):
+    """
+    Binds the matched value to a name: ``case x``.
+
+    Note: in Python's ``match`` statement a bare name *always* captures;
+    it never compares against an existing variable.  Use a guard
+    (``case _ if subject == x``) to compare against a runtime value.
+    """
+    name: str
+
+
+@dataclass(slots=True)
+class WildcardPattern(Pattern):
+    """Matches anything without binding: ``case _``."""
+
+
+@dataclass(slots=True)
+class ValuePattern(Pattern):
+    """
+    Matches a qualified name, typically an enum member: ``case Status.OK``.
+    In Python's ``match`` dotted names are treated as value patterns,
+    not captures.
+    """
+    expr: Expression        # always MemberAccessExpression or Identifier
+
+
+@dataclass(slots=True)
+class OrPattern(Pattern):
+    """
+    Matches any of several patterns: ``case 1, 2, 3`` → ``case 1 | 2 | 3``.
+    """
+    patterns: list[Pattern]
+
+
+# ── statement nodes ───────────────────────────────────────────────────────────
+
+@dataclass(slots=True)
+class CaseClause:
+    """A single arm of a switch statement."""
+    pattern: Pattern                # already OR'd if multiple given
+    guard:   Expression | None      # optional ``if expr`` after the pattern
+    body:    BlockNode
+
+
+@dataclass(slots=True)
+class SwitchNode(Node):
+    """
+    ``switch subject { case ... [default { }] }``
+
+    Maps to Python 3.10+ ``match``/``case``.
+    ``default`` becomes ``case _:``.
+    """
+    subject:      Expression
+    cases:        list[CaseClause]
+    default_body: BlockNode | None = None

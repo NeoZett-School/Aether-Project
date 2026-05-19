@@ -67,7 +67,15 @@ from ...parser.nodes import (
     TryNode,
     BreakNode,
     ContinueNode,
-    PassNode
+    PassNode,
+    Pattern,
+    LiteralPattern,
+    CapturePattern,
+    WildcardPattern,
+    ValuePattern,
+    OrPattern,
+    CaseClause,
+    SwitchNode
 )
 
 # Default token-level identifier translations, applied when evaluating
@@ -314,6 +322,24 @@ class PythonTranspiler:
             elif isinstance(node, ContinueNode): lines.append(f"{pad}continue")
             elif isinstance(node, PassNode):     lines.append(f"{pad}pass")
 
+            elif isinstance(node, SwitchNode):
+                lines.append(f"{pad}match {self._eval(node.subject)}:")
+
+                case_pad  = pad + self._INDENT
+                body_pad  = pad + self._INDENT * 2
+
+                for clause in node.cases:
+                    pattern_str = self._emit_pattern(clause.pattern)
+                    guard_str   = f" if {self._eval(clause.guard)}" if clause.guard else ""
+                    lines.append(f"{case_pad}case {pattern_str}{guard_str}:")
+                    body_lines  = self._generate(clause.body.body, indent + 2)
+                    lines.extend(body_lines if body_lines else [f"{body_pad}pass"])
+
+                if node.default_body is not None:
+                    lines.append(f"{case_pad}case _:")
+                    body_lines = self._generate(node.default_body.body, indent + 2)
+                    lines.extend(body_lines if body_lines else [f"{body_pad}pass"])
+
         return lines
     
     def _generate_class_body(self, nodes: list[Node], indent: int) -> list[str]:
@@ -461,23 +487,69 @@ class PythonTranspiler:
     
     # ------------------------------------------------------------- emit params
 
+    def _emit_pattern(self, pattern: Pattern) -> str:
+        """Lower a pattern to its Python ``case`` representation."""
+        if isinstance(pattern, WildcardPattern):
+            return "_"
+
+        if isinstance(pattern, CapturePattern):
+            return pattern.name
+
+        if isinstance(pattern, LiteralPattern):
+            return self._eval(pattern.value)
+
+        if isinstance(pattern, ValuePattern):
+            return self._eval(pattern.expr)
+
+        if isinstance(pattern, OrPattern):
+            return " | ".join(self._emit_pattern(p) for p in pattern.patterns)
+
+        raise TypeError(f"Unknown pattern type: {type(pattern).__name__!r}")
+
     def _emit_param(self, p: Parameter) -> str:
+        """Lower one ``Parameter`` to its Python string representation."""
+
+        if p.kind == "positional_sep":
+            return "/"
+
+        if p.kind == "keyword_sep":
+            return "*"
+
         annotation = f": {self._eval(p.annotation)}" if p.annotation else ""
+
         if p.kind == "args":
             return f"*{p.name}{annotation}"
+
         if p.kind == "kwargs":
+            # name is "_" when the source had a bare **
             return f"**{p.name}{annotation}"
+
+        # regular
         if p.default is not None:
             return f"{p.name}{annotation}={self._eval(p.default)}"
         return f"{p.name}{annotation}"
 
 
     def _emit_params(self, params: list[Parameter], inject_self: bool = False) -> str:
-        parts = ["self"] if inject_self else []
+        """
+        Join all parameters into a comma-separated string.
+
+        When ``inject_self`` is True (class methods), ``self`` is prepended
+        and any explicit ``self`` parameter in the source is skipped to
+        avoid duplication.  Separator markers (``/`` and ``*``) are always
+        preserved — they must never be filtered.
+        """
+        parts: list[str] = []
+
+        if inject_self:
+            parts.append("self")
+
         for p in params:
-            if p.name == "self":
+            # skip explicit self in class method declarations only
+            if inject_self and p.kind == "regular" and p.name == "self":
                 continue
             parts.append(self._emit_param(p))
+
         return ", ".join(parts)
     
     def _emit_decorator(self, dec: Decorator, pad: str) -> str:

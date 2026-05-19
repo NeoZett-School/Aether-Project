@@ -32,7 +32,6 @@ from ...lexer.states import TokenType
 from ...lexer.token import Token
 from .errors import ParseError
 from .nodes import (
-    ParameterKind,
     Parameter,
     Argument,
     Decorator,
@@ -74,7 +73,15 @@ from .nodes import (
     TryNode,
     BreakNode,
     ContinueNode,
-    PassNode
+    PassNode,
+    Pattern,
+    LiteralPattern,
+    CapturePattern,
+    WildcardPattern,
+    ValuePattern,
+    OrPattern,
+    CaseClause,
+    SwitchNode,
 )
 
 # Token types that carry no semantic meaning and can be stripped.
@@ -93,6 +100,7 @@ KEYWORDS: frozenset[str] = frozenset({
     "not", "and", "or", "is",
     "break", "continue", "pass",
     "with", "assert",
+    "switch", "case", "default"
 })
 
 
@@ -243,6 +251,7 @@ class Parser:
         if self._match_keyword("try"):      return self._parse_try()
         if self._match_keyword("with"):     return self._parse_with()
         if self._match_keyword("assert"):   return self._parse_assert()
+        if self._match_keyword("switch"):   return self._parse_switch()
 
         if self._match_keyword("break"):
             self._advance(); self._optional(TokenType.SEMICOLON); return BreakNode()
@@ -387,18 +396,141 @@ class Parser:
             decorators.clear()
         return ClassDeclarationNode(name_tok.lexeme, bases, body, class_decorators)
     
+    def _parse_param_list(self) -> list[Parameter]:
+        """
+        Parse the full comma-separated parameter list between ``(`` and ``)``.
+
+        All five forms are handled here:
+
+            name [: ann] [= default]   regular
+            *name [: ann]              var-positional
+            **name [: ann]             var-keyword
+            /                          positional-only separator
+            *                          keyword-only separator  (bare *, no name)
+            **                         nameless var-keyword    (emits **_ in Python)
+
+        Validation
+        ----------
+        - ``/`` must precede any ``*`` or ``**``.
+        - At most one ``/``, one ``*``-family marker, one ``**``-family param.
+        - No regular or ``*args`` parameters may follow ``**``.
+        """
+        params:   list[Parameter] = []
+        seen_slash   = False
+        seen_star    = False        # bare * or *args
+        seen_kwargs  = False
+
+        if self._match(TokenType.RPAREN):
+            return params
+
+        while True:
+            tok = self._current
+
+            # ── / ── positional-only separator ───────────────────────────────
+            if self._is_op("/"):
+                if seen_slash:
+                    raise ParseError("Only one '/' separator is allowed in a parameter list")
+                if seen_star or seen_kwargs:
+                    raise ParseError("'/' must come before '*' and '**'")
+                self._advance()
+                params.append(Parameter(name="", kind="positional_sep"))
+                seen_slash = True
+
+            # ── * ── either *name or bare * (keyword-only separator) ──────────
+            elif self._is_op("*"):
+                if seen_star or seen_kwargs:
+                    raise ParseError("Only one '*' or '*name' is allowed in a parameter list")
+                self._advance()
+
+                # bare *  — next meaningful token is , or )
+                if self._current and self._current.token_type in {
+                    TokenType.COMMA, TokenType.RPAREN
+                }:
+                    params.append(Parameter(name="", kind="keyword_sep"))
+                else:
+                    name = self._expect(TokenType.IDENTIFIER).lexeme
+                    ann  = self._parse_inline_annotation()
+                    params.append(Parameter(name=name, kind="args", annotation=ann))
+
+                seen_star = True
+
+            # ── ** ── either **name or bare ** (nameless kwargs → **_) ────────
+            elif self._is_op("**"):
+                if seen_kwargs:
+                    raise ParseError("Only one '**' parameter is allowed in a parameter list")
+                self._advance()
+
+                # bare **  — next meaningful token is , or )
+                if self._current and self._current.token_type in {
+                    TokenType.COMMA, TokenType.RPAREN
+                }:
+                    params.append(Parameter(name="_", kind="kwargs"))
+                else:
+                    name = self._expect(TokenType.IDENTIFIER).lexeme
+                    ann  = self._parse_inline_annotation()
+                    params.append(Parameter(name=name, kind="kwargs", annotation=ann))
+
+                seen_kwargs = True
+
+            # ── regular parameter ─────────────────────────────────────────────
+            else:
+                if seen_kwargs:
+                    raise ParseError(
+                        "Regular parameters cannot follow '**'"
+                    )
+                params.append(self._parse_parameter())
+
+            # ── advance past comma ─────────────────────────────────────────────
+            if not self._match(TokenType.COMMA):
+                break
+            self._advance()
+            if self._match(TokenType.RPAREN):
+                break                               # trailing comma is fine
+
+        return params
+
+
+    def _is_op(self, lexeme: str) -> bool:
+        """Return True if the current token is an OPERATOR with the given lexeme."""
+        tok = self._current
+        return (
+            tok is not None
+            and tok.token_type == TokenType.OPERATOR
+            and tok.lexeme == lexeme
+        )
+
+
+    def _parse_inline_annotation(self) -> Expression | None:
+        """Consume ``: annotation`` if present, else return None."""
+        if self._match(TokenType.COLON):
+            self._advance()
+            return self._parse_annotation()
+        return None
+
+
+    def _parse_parameter(self) -> Parameter:
+        """
+        Parse a single regular parameter:
+            name [: annotation] [= default]
+
+        ``*``, ``**``, ``/`` are handled by ``_parse_param_list`` before
+        this method is ever called.
+        """
+        name = self._expect(TokenType.IDENTIFIER).lexeme
+        annotation = self._parse_inline_annotation()
+        default = None
+        if self._match(TokenType.ASSIGN):
+            self._advance()
+            default = self._parse_expression()
+        return Parameter(name, default, "regular", annotation)
+    
     def _parse_function_declaration(self, decorators: list[str] | None = None) -> FunctionDeclarationNode:
         """``function name ( params ) block``"""
         self._advance()                               # consume `function`
         name_tok = self._expect(TokenType.IDENTIFIER)
         self._expect(TokenType.LPAREN)
 
-        params: list[Parameter] = []
-        if not self._match(TokenType.RPAREN):
-            params.append(self._parse_parameter())
-            while self._match(TokenType.COMMA):
-                self._advance()
-                params.append(self._parse_parameter())
+        params = self._parse_param_list()
 
         self._expect(TokenType.RPAREN)
 
@@ -418,7 +550,7 @@ class Parser:
     
     def _parse_parameter(self) -> Parameter:
         """Parses one of: ``name``, ``name=expr``, ``*name``, ``**name``."""
-        kind: ParameterKind = "regular"
+        kind = "regular"
 
         if self._match(TokenType.OPERATOR):
             if self._current.lexeme == "**":
@@ -818,6 +950,133 @@ class Parser:
             message = self._parse_expression()
         self._optional(TokenType.SEMICOLON)
         return AssertNode(condition, message)
+    
+    def _parse_case_patterns(self) -> Pattern:
+        """
+        Parse one or more comma-separated patterns.
+        Multiple patterns become an ``OrPattern``.
+        """
+        first = self._parse_pattern()
+        if not self._match(TokenType.COMMA):
+            return first
+        patterns = [first]
+        while self._match(TokenType.COMMA):
+            self._advance()
+            patterns.append(self._parse_pattern())
+        return OrPattern(patterns)
+
+
+    def _parse_pattern(self) -> Pattern:
+        """
+        Parse a single atomic pattern.
+
+        Forms supported
+        ---------------
+        ``_``                  Wildcard — matches anything.
+        ``1``, ``"s"``         Literal — matches that exact constant.
+        ``-1``, ``-3.14``      Negative numeric literal.
+        ``true`` / ``false``   Boolean literals.
+        ``null``               None literal.
+        ``name``               Capture — binds the value to a new variable.
+        ``Enum.MEMBER``        Value pattern — dotted qualified name.
+        """
+        tok = self._current
+        if tok is None:
+            raise ParseError("Unexpected end of input while parsing pattern")
+
+        # ── wildcard ──────────────────────────────────────────────────────────
+        if tok.token_type == TokenType.IDENTIFIER and tok.lexeme == "_":
+            self._advance()
+            return WildcardPattern()
+
+        # ── boolean / null pseudo-literals ────────────────────────────────────
+        if tok.token_type == TokenType.IDENTIFIER and tok.lexeme in {"true", "false", "null"}:
+            self._advance()
+            py_val: bool | None = {"true": True, "false": False, "null": None}[tok.lexeme]
+            return LiteralPattern(Literal(py_val))
+
+        # ── numeric literal ───────────────────────────────────────────────────
+        if tok.token_type == TokenType.NUMBER:
+            self._advance()
+            val = float(tok.lexeme) if "." in tok.lexeme else int(tok.lexeme)
+            return LiteralPattern(Literal(val))
+
+        # ── negative numeric literal: -1, -3.14 ──────────────────────────────
+        if (
+            tok.token_type == TokenType.OPERATOR and tok.lexeme == "-"
+            and self._peek() is not None
+            and self._peek().token_type == TokenType.NUMBER
+        ):
+            self._advance()                             # consume '-'
+            num = self._advance()
+            val = float(num.lexeme) if "." in num.lexeme else int(num.lexeme)
+            return LiteralPattern(Literal(-val))
+
+        # ── string literal ────────────────────────────────────────────────────
+        if tok.token_type == TokenType.STRING:
+            self._advance()
+            return LiteralPattern(Literal(tok.lexeme, prefix=tok.prefix))
+
+        # ── identifier: capture or qualified value ────────────────────────────
+        if tok.token_type == TokenType.IDENTIFIER and tok.lexeme not in KEYWORDS:
+            name = self._advance().lexeme
+
+            # dotted name → value pattern (e.g. Status.OK)
+            if self._match(TokenType.DOT):
+                expr: Expression = Identifier(name)
+                while self._match(TokenType.DOT):
+                    self._advance()
+                    member = self._expect(TokenType.IDENTIFIER).lexeme
+                    expr   = MemberAccessExpression(expr, member)
+                return ValuePattern(expr)
+
+            # bare name → capture
+            return CapturePattern(name)
+
+        raise ParseError(
+            f"Expected a pattern (literal, name, _, or Qualified.Name), "
+            f"got {tok!r}",
+            tok.row, tok.column,
+        )
+    
+    def _parse_switch(self) -> SwitchNode:
+        """``switch subject { case ... default ... }``"""
+        self._advance()                                 # consume 'switch'
+        subject = self._parse_expression()
+        self._expect(TokenType.LBRACE)
+
+        cases:        list[CaseClause] = []
+        default_body: BlockNode | None = None
+
+        while self._current and not self._match(TokenType.RBRACE):
+
+            if self._match_keyword("case"):
+                self._advance()                         # consume 'case'
+                pattern = self._parse_case_patterns()
+
+                guard = None
+                if self._match_keyword("if"):
+                    self._advance()                     # consume 'if'
+                    guard = self._parse_expression()
+
+                cases.append(CaseClause(pattern, guard, self._parse_block()))
+
+            elif self._match_keyword("default"):
+                self._advance()                         # consume 'default'
+                if default_body is not None:
+                    raise ParseError("A switch may only have one 'default' clause")
+                default_body = self._parse_block()
+
+            else:
+                tok = self._current
+                raise ParseError(
+                    "Expected 'case' or 'default' inside switch body",
+                    tok.row if tok else None,
+                    tok.column if tok else None,
+                )
+
+        self._expect(TokenType.RBRACE)
+        return SwitchNode(subject, cases, default_body)
 
 
     # ----------------------------------------------------------- expressions
